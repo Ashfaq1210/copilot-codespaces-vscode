@@ -1,0 +1,252 @@
+import pexpect
+from netmiko import ConnectHandler
+import re
+
+# Define device connection details for Netmiko
+device = {
+    'device_type': 'cisco_ios',
+    'ip': '192.168.56.101',  
+    'username': 'cisco',  
+    'password': 'cisco123!',  
+}
+
+# Hardening checks as regex patterns
+hardening_checks = {
+    "SSH enabled": r"ip ssh version 2",
+    "Telnet disabled": r"no\s+transport\s+input\s+telnet",
+    "Strong passwords enforced": r"security password min-length \d+",
+    "Logging configured": r"logging host \d+\.\d+\.\d+\.\d+",
+    "HTTP server disabled": r"no ip http server"
+}
+
+# Syslog configuration commands
+syslog_commands = [
+    'logging host 192.168.1.100',  
+    'logging trap informational',
+    'logging on'
+]
+
+def check_device_hardening():
+    """Fetch and check the running configuration for hardening compliance."""
+    try:
+        connection = ConnectHandler(**device)
+        print("Connected to the device successfully.")
+
+        # Get the running configuration
+        print("Fetching the running configuration...")
+        running_config = connection.send_command("show running-config")
+
+        # Perform hardening checks
+        print("\nPerforming hardening checks...")
+        for check, pattern in hardening_checks.items():
+            if re.search(pattern, running_config):
+                print(f"[PASS] {check}")
+            else:
+                print(f"[FAIL] {check}")
+
+        connection.disconnect()
+        print("\nConnection closed.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+def configure_syslog():
+    """Configure the device to enable syslog for event logging."""
+    try:
+        connection = ConnectHandler(**device)
+        print("Connected to the device successfully.")
+
+        # Apply syslog configuration commands
+        print("Configuring syslog settings...")
+        output = connection.send_config_set(syslog_commands)
+        print("Syslog configuration output:")
+        print(output)
+
+        connection.disconnect()
+        print("\nSyslog configuration applied and connection closed.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+op = True
+while op == True:
+    print("\nMenu Options:")
+    print("T - Telnet connection and hostname change")
+    print("S - SSH connection and hostname change")
+    print("C - Save running config to file")
+    print("H - Perform hardening check")
+    print("Sy - Configure syslog settings")
+    print("Q - Quit the program")
+    
+    option = input("\nEnter an option: ")
+
+    if option == "T" or option == "t":
+        ip = '192.168.56.101'
+        user = 'cisco'
+        pwd = 'cisco123!'
+        new_name = input("Enter new hostname: ")
+
+        connection = pexpect.spawn(f'telnet {ip}', encoding='utf-8', timeout=20)
+        response = connection.expect(['Username:', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Unable to establish connection to {ip}')
+            exit()
+
+        connection.sendline(user)
+        response = connection.expect(['Password:', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to input username {user}')
+            exit()
+
+        connection.sendline(pwd)
+        response = connection.expect(['#', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to input password for user {user}')
+            exit()
+
+        print('--------------------------------')
+        print(f'Successfully connected to {ip}')
+        print(f'Logged in with Username: {user}')
+        print(f'Password: {pwd}')
+        print('--------------------------------')
+
+        connection.sendline('configure terminal')
+        response = connection.expect([r'.*\(config\)#', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to enter configuration mode')
+            exit()
+
+        connection.sendline(f'hostname {new_name}')
+        response = connection.expect([f'{new_name}\(config\)#', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to set hostname to {new_name}')
+            exit()
+
+        print('--------------------------------')
+        print(f'Successfully changed hostname to: {new_name}')
+        print('--------------------------------')
+
+        connection.sendline('exit')
+        connection.sendline('quit')
+        connection.close()
+
+    elif option == "S" or option == "s":
+        ip_address = '192.168.56.101'
+        username = 'prne'
+        password = 'cisco123!'
+        password_enable = 'class123!'
+        new_hostname = input("Enter the new hostname: ")
+
+        session = pexpect.spawn(f'ssh {username}@{ip_address}', encoding='utf-8', timeout=20)
+        response = session.expect(['Password:', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Unable to initiate SSH session with {ip_address}.')
+            exit()
+
+        session.sendline(password)
+        response = session.expect(['>', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Authentication failed for {username}.')
+            exit()
+
+        session.sendline('enable')
+        response = session.expect(['Password:', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Failed to enter enable mode.')
+            exit()
+
+        session.sendline(password_enable)
+        response = session.expect(['#', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Enable password incorrect.')
+            exit()
+
+        session.sendline('configure terminal')
+        response = session.expect([r'\(config\)#', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Could not enter configuration mode.')
+            exit()
+
+        session.sendline(f'hostname {new_hostname}')
+        response = session.expect([rf'{new_hostname}\(config\)#', pexpect.TIMEOUT, pexpect.EOF])
+
+        if response != 0:
+            print(f'Error: Unable to change hostname to {new_hostname}.')
+            exit()
+
+        session.sendline('end')
+        session.sendline('exit')
+        session.close()
+
+    elif option == "C" or option == "c":
+        ip = '192.168.56.101'
+        user = 'cisco'
+        pwd = 'cisco123!'
+
+        connection = pexpect.spawn(f'telnet {ip}', encoding='utf-8', timeout=20)
+        response = connection.expect(['Username:', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Unable to establish connection to {ip}')
+            exit()
+
+        connection.sendline(user)
+        response = connection.expect(['Password:', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to input username {user}')
+            exit()
+
+        connection.sendline(pwd)
+        response = connection.expect(['#', pexpect.TIMEOUT])
+
+        if response != 0:
+            print(f'Error: Failed to input password for user {user}')
+            exit()
+
+        print('--------------------------------')
+        print(f'Successfully connected to {ip}')
+        print(f'Logged in with Username: {user}')
+        print(f'Password: {pwd}')
+        print('--------------------------------')
+
+        connection.sendline('terminal length 0')
+        result = connection.expect(['#'])
+
+        connection.sendline('show run brief')
+        result = connection.expect(['#'])
+        config_info = connection.before
+
+        outfile = open('config_fileAsh1.txt', 'w+')
+        outfile.write(config_info)
+
+        print('This is the:', config_info)
+
+        print('--------------------------------')
+        print('--- You have saved the running config successfully!')
+        print('--------------------------------')
+
+        connection.sendline('quit')
+        connection.close()
+        exit()
+
+    elif option == "H" or option == "h":
+        check_device_hardening()
+
+    elif option == "Sy" or option == "sy":
+        configure_syslog()
+
+    elif option == "Q" or option == "q":
+        exit()
+
+    else:
+        print("Enter valid option")
